@@ -10,18 +10,41 @@
 using namespace std;
 
 scs::Problem getTestData() {
-  scs::Problem problem(2, 3);
+  scs::Problem problem(2, 2);
 
-  problem.b(0) = 1;
-  problem.b(1) = 1;
+  problem.c(0) = 30;
+  problem.c(1) = 40;
 
-  problem.c(0) = 1;
-  problem.c(1) = 1;
-  problem.c(2) = 1;
+  problem.b(0) = 3000;
+  problem.b(1) = 4000;
 
-  problem.A.insert(0, 0) = 1;
-  problem.A.insert(0, 1) = -1;
-  problem.A.insert(1, 2) = 1;
+  problem.A.insert(0, 0) = 20;
+  problem.A.insert(0, 1) = 30;
+
+  problem.A.insert(1, 0) = 40;
+  problem.A.insert(1, 1) = 30;
+
+  return problem;
+}
+
+scs::Problem getTestData2() {
+  scs::Problem problem(2, 4);
+
+  problem.c(0) = -17.1667;
+  problem.c(1) = -25.8667;
+  problem.c(2) = 0;
+  problem.c(3) = 0;
+
+  problem.b(0) = 2270;
+  problem.b(1) = 1900;
+
+  problem.A.insert(0, 0) = 13;
+  problem.A.insert(0, 1) = 19;
+  problem.A.insert(0, 2) = 1;
+
+  problem.A.insert(1, 0) = 20;
+  problem.A.insert(1, 1) = 29;
+  problem.A.insert(1, 3) = 1;
 
   return problem;
 }

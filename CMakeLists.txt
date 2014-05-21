@@ -33,6 +33,14 @@ find_library(PTSCOTCH_ERR ptscotcherrexit PATHS "/home/satya/ThirdParty/Scotch-6
 find_library(PASTIX pastix PATHS "/home/satya/ThirdParty/Pastix-5.2.2/lib")
 #Pastix
 
+#BOOST LOG
+add_definitions(-DBOOST_ALL_DYN_LINK)
+find_library(BOOST_LOG boost_log PATHS "/home/satya/ThirdParty/Boost-1.55/lib")
+find_library(BOOST_LOG_SETUP boost_log_setup PATHS "/home/satya/ThirdParty/Boost-1.55/lib")
+find_library(BOOST_DATE_TIME boost_date_time PATHS "/home/satya/ThirdParty/Boost-1.55/lib")
+find_library(BOOST_SYSTEM boost_system PATHS "/home/satya/ThirdParty/Boost-1.55/lib")
+find_library(BOOST_THREAD boost_thread PATHS "/home/satya/ThirdParty/Boost-1.55/lib")
+#BOOST LOG
 set(MAIN_SRC ./src/main.cpp)
 
 add_executable(ConicOptimization ${MAIN_SRC})
@@ -40,6 +48,9 @@ add_executable(ConicOptimization ${MAIN_SRC})
 target_link_libraries(${PROJECT_NAME}
                       ${PASTIX} ${PTSCOTCH} ${SCOTCH} ${SCOTCH_ERR} m rt  pthread
                       ${HWLOC_LIBRARY}
-                      ${BLAS_LIBRARY} gfortran    )
+                      ${BLAS_LIBRARY} gfortran )
+
+target_link_libraries(${PROJECT_NAME}
+		      ${BOOST_LOG} ${BOOST_LOG_SETUP} ${BOOST_DATE_TIME} ${BOOST_SYSTEM} ${BOOST_THREAD} )
 
 install(TARGETS ConicOptimization RUNTIME DESTINATION bin)

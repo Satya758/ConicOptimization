@@ -1,17 +1,19 @@
 /*!
  * TODO Name of the project is ????? not sure as of now lets see later
  * Main solver, Currently not sure how this turns out
+ *
+ * TODO Move code to different headers
+ * TODO Change the name of the header file
  * @version 0.1.0
  * @author satya
  */
 
-// TODO For testing
-#include <iostream>
-using std::cout;
-using std::endl;
+#ifndef OPERATOR_SPLITTING_CONIC_SOLVER_HPP
+#define OPERATOR_SPLITTING_CONIC_SOLVER_HPP
+
+#include "Logger.hpp"
 
 #include <cmath>
-#include <ratio>
 
 #include <Eigen/Sparse>
 #include <Eigen/Dense>
@@ -30,9 +32,6 @@ extern "C" {
 //****************************************************************************//
 
 #include <Eigen/PaStiXSupport>
-
-#ifndef OPERATOR_SPLITTING_CONIC_SOLVER_HPP
-#define OPERATOR_SPLITTING_CONIC_SOLVER_HPP
 
 // TODO How to avoid conflicting namespaces?
 namespace scs {
@@ -98,6 +97,17 @@ Omega operator+(const Omega& lhsOmega, const Omega& rhsOmega) {
   return sumOmega;
 }
 
+std::ostream& operator<<(std::ostream& stream, const Omega& omega) {
+  stream << std::endl;
+  stream << "###################################" << std::endl;
+  stream << "Value of x: " << std::endl << omega.x << std::endl;
+  stream << "Value of y: " << std::endl << omega.y << std::endl;
+  stream << "Value of tau: " << std::endl << omega.tau << std::endl;
+  stream << "###################################" << std::endl;
+
+  return stream;
+}
+
 /*!
  *
  */
@@ -129,6 +139,17 @@ class Psi {
     return initialPoint;
   }
 };
+
+std::ostream& operator<<(std::ostream& stream, const Psi& psi) {
+  stream << std::endl;
+  stream << "###################################" << std::endl;
+  stream << "Value of r: " << std::endl << psi.r << std::endl;
+  stream << "Value of s: " << std::endl << psi.s << std::endl;
+  stream << "Value of kappa: " << std::endl << psi.kappa << std::endl;
+  stream << "###################################" << std::endl;
+
+  return stream;
+}
 
 /*!
  * FIXME If we make member variables of omega and psi private, how can we access
@@ -225,16 +246,13 @@ class Residuals {
 };
 
 bool operator<=(const Residuals& lhsResidual, const Residuals& rhsResidual) {
-  cout << "Primal: " << lhsResidual.primal << endl;
-  cout << "Dual: " << lhsResidual.dual << endl;
-  cout << "Gap: " << lhsResidual.primalDualGap << endl;
-
   return lhsResidual.primal <= rhsResidual.primal &&
          lhsResidual.dual <= rhsResidual.dual &&
          lhsResidual.primalDualGap <= rhsResidual.primalDualGap;
 }
 
 /*!
+ * Factorization is done based on http://www.princeton.edu/~rvdb/tex/myPapers/sqd6.pdf
  *
  */
 class SubspaceProjection {
@@ -244,14 +262,15 @@ class SubspaceProjection {
     directSolver.compute(getNormalEquationLhs(problem));
     if (directSolver.info() != Eigen::Success) {
       // TODO Exception or what? BOOST Log?
-      cout << "Factorization failed!" << endl;
+      // TODO How to have global logger object...singleton
     }
 
     // Solve
     // Instead of merging h, we have seperated h into MInverseHC & MInverseHB
-    Eigen::VectorXd rhsH = problem.c - problem.A.transpose() * problem.b;
-    MInverseHC = directSolver.solve(rhsH);
-    MInverseHB = problem.b + problem.A * MInverseHC;
+    Eigen::VectorXd rhsH = problem.b + problem.A * problem.c;
+    // MInverseHB is second equation in M and MInverseHC is first, named based on RHS h
+    MInverseHB = directSolver.solve(rhsH);
+    MInverseHC = problem.c - problem.A.transpose() * MInverseHB;
 
     // Denominator of Matrix inverse lemma
     denominator = 1 + problem.c.transpose() * MInverseHC +
@@ -266,9 +285,9 @@ class SubspaceProjection {
     Eigen::VectorXd deltaXTauC = delta.x - delta.tau * problem.c;
     Eigen::VectorXd deltaYTauB = delta.y - delta.tau * problem.b;
 
-    Eigen::VectorXd MInverseDeltaX =
-        directSolver.solve(deltaXTauC - problem.A.transpose() * deltaYTauB);
-    Eigen::VectorXd MInverseDeltaY = deltaYTauB + problem.A * MInverseDeltaX;
+    Eigen::VectorXd MInverseDeltaY =
+        directSolver.solve(deltaYTauB + problem.A * deltaXTauC);
+    Eigen::VectorXd MInverseDeltaX = deltaXTauC - problem.A.transpose() * MInverseDeltaY;
 
     // For some reason CT*x + bT*Y expression is failing, so the following
     // workaround
@@ -296,12 +315,12 @@ class SubspaceProjection {
   double denominator;
 
   Eigen::SparseMatrix<double> getNormalEquationLhs(const Problem& problem) {
-    Eigen::SparseMatrix<double> identity(problem.A.cols(), problem.A.cols());
+    Eigen::SparseMatrix<double> identity(problem.A.rows(), problem.A.rows());
     identity.setIdentity();
 
-    Eigen::SparseMatrix<double> ATransposeA = problem.A.transpose() * problem.A;
+    Eigen::SparseMatrix<double> AATranspose = problem.A * problem.A.transpose();
 
-    return identity + ATransposeA;
+    return identity + AATranspose;
   }
 };
 
@@ -352,6 +371,9 @@ class ConicSolver {
         problem(problem) {}
 
   void solve() {
+
+    internal::Logger logger;
+
     int iteration = 0;
 
     internal::Omega omega = internal::Omega::getInitialPoint(problem);
@@ -367,24 +389,31 @@ class ConicSolver {
 
     while (iteration < maximumIterations) {
 
-      cout << "Final Result: " << omega.x << endl;
-      cout << "Final Result: " << omega.y << endl;
-      cout << "Final Result: " << omega.tau << endl;
-
       internal::Residuals residuals(problem, omega, psi);
       if (residuals <= tolerantResiduals) {
         break;
       }
+
+      //BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) << "Initial Values";
+      //BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) << omega << "Iteration" << iteration;
+
       omegaHat = subspaceProjection.doProjection(problem, omega);
+      // TODO Does not work as additions adds x variable, as we are not relaxing x we should not do that
+      //omegaHat = relaxationParameter * omegaHat + (1 - relaxationParameter) * omega;
+
+      omegaHat = relaxOmegaHat(omegaHat, omega);
+
+      //BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) << omegaHat;
+
       omega = conicProjection.doProjection(omegaHat - psi);
       psi = psi - (omegaHat + omega);
 
-      // cout << "Gap: " << residuals.primalDualGap << endl;
-
       ++iteration;
     }
-
-
+    //BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) << "Final";
+    BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) << omega;
+    BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) << "Iteration: " << iteration;
+    BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) << "Final Value of X" << std::endl << omega.x/omega.tau;
   }
 
  private:
@@ -393,6 +422,16 @@ class ConicSolver {
   const double relaxationParameter;
 
   const Problem& problem;
+
+  internal::Omega relaxOmegaHat(const internal::Omega& omegaHat, const internal::Omega& omega){
+    internal::Omega relaxedOmegaHat;
+
+    relaxedOmegaHat.x = omegaHat.x;
+    relaxedOmegaHat.y = relaxationParameter * omegaHat.y + (1 - relaxationParameter) * omega.y;
+    relaxedOmegaHat.tau = relaxationParameter * omegaHat.tau + (1 - relaxationParameter) * omega.tau;
+
+    return relaxedOmegaHat;
+  }
 };
 }
 
