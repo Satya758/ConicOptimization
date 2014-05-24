@@ -60,7 +60,7 @@ int main(int argc, char **argv) {
 
   scs::Problem problem = getTestData();
 
-  scs::ConicSolver solver(problem, 50, 1.8);
+  scs::ConicSolver solver(problem, 50, 1.5);
 
   solver.solve();
 
