@@ -6,14 +6,15 @@
 #include <iostream>
 
 #include <OperatorSplittingConicSolver.hpp>
+#include <ProblemGeneration.hpp>
 
 using namespace std;
 
 scs::Problem getTestData() {
   scs::Problem problem(2, 2);
 
-  problem.c(0) = 30;
-  problem.c(1) = 40;
+  problem.c(0) = -30;
+  problem.c(1) = -40;
 
   problem.b(0) = 3000;
   problem.b(1) = 4000;
@@ -51,9 +52,15 @@ scs::Problem getTestData2() {
 
 int main(int argc, char **argv) {
 
+  // scs::Problem problem = scs::internal::tests::getLPProblem(5, 5);
+
+  //   cout << problem.A << endl;
+  //   cout << problem.c << endl;
+  //   cout << problem.b << endl;
+
   scs::Problem problem = getTestData();
 
-  scs::ConicSolver solver(problem, 100);
+  scs::ConicSolver solver(problem, 50, 1.8);
 
   solver.solve();
 

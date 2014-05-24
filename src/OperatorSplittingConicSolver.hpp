@@ -4,6 +4,7 @@
  *
  * TODO Move code to different headers
  * TODO Change the name of the header file
+ * TODO Add const to function definitions
  * @version 0.1.0
  * @author satya
  */
@@ -13,7 +14,13 @@
 
 #include "Logger.hpp"
 
+// Temp
+#include <iostream>
+
+using namespace std;
+
 #include <cmath>
+#include <utility>
 
 #include <Eigen/Sparse>
 #include <Eigen/Dense>
@@ -252,29 +259,32 @@ bool operator<=(const Residuals& lhsResidual, const Residuals& rhsResidual) {
 }
 
 /*!
- * Factorization is done based on http://www.princeton.edu/~rvdb/tex/myPapers/sqd6.pdf
+ * Factorization is done based on
+ *http://www.princeton.edu/~rvdb/tex/myPapers/sqd6.pdf
  *
  */
 class SubspaceProjection {
  public:
-  SubspaceProjection(const Problem& problem) {
+  SubspaceProjection(const Problem& problem, const double xScalingParameter)
+      : rhsH(problem.c.rows() + problem.b.rows()), xScalingParameter(xScalingParameter) {
+
+    Eigen::SparseMatrix<double> MHat = createMHat(problem);
     // Factorize
-    directSolver.compute(getNormalEquationLhs(problem));
+    directSolver.compute(MHat);
     if (directSolver.info() != Eigen::Success) {
       // TODO Exception or what? BOOST Log?
       // TODO How to have global logger object...singleton
+      cout << "Failed" << endl;
     }
 
-    // Solve
-    // Instead of merging h, we have seperated h into MInverseHC & MInverseHB
-    Eigen::VectorXd rhsH = problem.b + problem.A * problem.c;
-    // MInverseHB is second equation in M and MInverseHC is first, named based on RHS h
-    MInverseHB = directSolver.solve(rhsH);
-    MInverseHC = problem.c - problem.A.transpose() * MInverseHB;
+    rhsH << problem.c, problem.b;
+
+    MInverseH = directSolver.solve(rhsH);
+    // Negate y part as we have normalized M to MHat to confirm with spd
+    MInverseH.tail(problem.b.rows()) = -MInverseH.tail(problem.b.rows());
 
     // Denominator of Matrix inverse lemma
-    denominator = 1 + problem.c.transpose() * MInverseHC +
-                  problem.b.transpose() * MInverseHB;
+    denominator = 1 + rhsH.transpose() * MInverseH;
   }
 
   /*!
@@ -282,24 +292,24 @@ class SubspaceProjection {
    */
   Omega doProjection(const Problem& problem, const Omega& delta) const {
 
-    Eigen::VectorXd deltaXTauC = delta.x - delta.tau * problem.c;
+    Eigen::VectorXd deltaXTauC = delta.x * xScalingParameter - delta.tau * problem.c;
     Eigen::VectorXd deltaYTauB = delta.y - delta.tau * problem.b;
+    Eigen::VectorXd deltaHat(problem.c.rows() + problem.b.rows());
+    deltaHat << deltaXTauC, deltaYTauB;
 
-    Eigen::VectorXd MInverseDeltaY =
-        directSolver.solve(deltaYTauB + problem.A * deltaXTauC);
-    Eigen::VectorXd MInverseDeltaX = deltaXTauC - problem.A.transpose() * MInverseDeltaY;
+    Eigen::VectorXd MInverseDelta = directSolver.solve(deltaHat);
+    // Negate y part as we have normalized M to MHat to confirm with spd
+    MInverseDelta.tail(problem.b.rows()) =
+        -MInverseDelta.tail(problem.b.rows());
 
-    // For some reason CT*x + bT*Y expression is failing, so the following
-    // workaround
-    double CTransposeDeltaX = problem.c.transpose() * MInverseDeltaX;
-    double hTransposeMInverseDelta =
-        CTransposeDeltaX + problem.b.transpose() * MInverseDeltaY;
+    // (mil) Matrix Inverse Lemma solution
+    Eigen::VectorXd milSolution =
+        MInverseDelta -
+        (MInverseH * rhsH.transpose() * MInverseDelta) / denominator;
 
     Omega omegaHat;
-    omegaHat.x =
-        MInverseDeltaX - MInverseHC * (hTransposeMInverseDelta / denominator);
-    omegaHat.y =
-        MInverseDeltaY - MInverseHB * (hTransposeMInverseDelta / denominator);
+    omegaHat.x = milSolution.head(problem.A.cols());
+    omegaHat.y = milSolution.tail(problem.A.rows());
     omegaHat.tau = delta.tau + problem.c.transpose() * omegaHat.x +
                    problem.b.transpose() * omegaHat.y;
 
@@ -307,20 +317,52 @@ class SubspaceProjection {
   }
 
  private:
-  Eigen::PastixLLT<Eigen::SparseMatrix<double>, Eigen::Lower> directSolver;
+  Eigen::PastixLDLT<Eigen::SparseMatrix<double>, Eigen::Lower> directSolver;
   // Both First part and second part
-  Eigen::VectorXd MInverseHC;
-  Eigen::VectorXd MInverseHB;
+  Eigen::VectorXd MInverseH;
+  Eigen::VectorXd rhsH;
   // Denominator for Matrix Inverse lemma
   double denominator;
 
-  Eigen::SparseMatrix<double> getNormalEquationLhs(const Problem& problem) {
-    Eigen::SparseMatrix<double> identity(problem.A.rows(), problem.A.rows());
-    identity.setIdentity();
+  const double xScalingParameter;
 
-    Eigen::SparseMatrix<double> AATranspose = problem.A * problem.A.transpose();
+  /*!
+   * Create MHat which confirms to SPD paper
+   * TODO Is there a better way to do rather than working with column compressed
+   * format
+   */
+  Eigen::SparseMatrix<double> createMHat(const Problem& problem) {
 
-    return identity + AATranspose;
+    int Arows = problem.A.rows();
+    int Acols = problem.A.cols();
+    int squareMatrixSize = Arows + Acols;
+
+    Eigen::SparseMatrix<double> lowerMHat(squareMatrixSize, squareMatrixSize);
+
+    // As storage schem is column compressed, we fill data column wise to
+    // achieve O(1) complexity. And we know it is symmetric so we fill only
+    // lower traingular matrix
+    for (int colIndex = 0; colIndex < squareMatrixSize; ++colIndex) {
+      // Change the rowIndex as we need to traverse only lower triangle, thats
+      // the reason for rowIndex = colIndex
+      for (int rowIndex = colIndex; rowIndex < squareMatrixSize; ++rowIndex) {
+        // fill top left blocks diagonal
+        if (colIndex == rowIndex && colIndex < Acols && rowIndex < Acols) {
+          lowerMHat.insert(rowIndex, colIndex) = xScalingParameter;
+        }
+        // fill bottom right block diagonal
+        if (colIndex == rowIndex && colIndex >= Acols && rowIndex >= Acols) {
+          lowerMHat.insert(rowIndex, colIndex) = -1;
+        }
+        // fill bottom left block using A
+        if (rowIndex >= Acols && colIndex < Acols) {
+          lowerMHat.insert(rowIndex, colIndex) =
+              -problem.A.coeff(rowIndex - Acols, colIndex);
+        }
+      }
+    }
+
+    return lowerMHat;
   }
 };
 
@@ -335,7 +377,7 @@ class ConicProjection {
   Omega doProjection(const Omega& omegaHat) {
 
     Omega omegaHat2 = omegaHat;
-    omegaHat2.y.unaryExpr([](const double & element)->double {
+    omegaHat2.y = omegaHat2.y.unaryExpr([](const double & element)->double {
       if (element <= 0) {
         return 0;
       } else {
@@ -351,7 +393,8 @@ class ConicProjection {
   }
 };
 }  // namespace internal
-   /*!
+
+/*!
 *
 * Interface to the solver, which accepts problem data
 * TODO Currently it only supports linear programming.
@@ -362,14 +405,20 @@ class ConicProjection {
 class ConicSolver {
  public:
   // TODO Move problem input to solve method if we dont do anything in between
-  ConicSolver(Problem& problem, const unsigned int maximumIterations = 1000,
-              const double tolerance = 1e-3,
-              const double relaxationParameter = 1.5)
+  ConicSolver(const Problem& problem,
+              const unsigned int maximumIterations = 1000,
+              const double relaxationParameter = 1.5,
+              const double xScalingParameter = 1e-3,
+	      const double tolerance = 1e-3)
       : maximumIterations(maximumIterations),
         tolerance(tolerance),
         relaxationParameter(relaxationParameter),
-        problem(problem) {}
+        xScalingParameter(xScalingParameter),
+        problem(problem){}
 
+  /*!
+   * TODO Add return parameter
+   */
   void solve() {
 
     internal::Logger logger;
@@ -382,11 +431,10 @@ class ConicSolver {
     // TODO How do we deal with infeasible and unboundedness
     // TODO May be we can have this in constructor
     internal::Residuals tolerantResiduals(tolerance);
-    internal::SubspaceProjection subspaceProjection(problem);
+    internal::SubspaceProjection subspaceProjection(problem, xScalingParameter);
     internal::ConicProjection conicProjection;
 
-    internal::Omega omegaHat;
-
+    BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) << omega;
     while (iteration < maximumIterations) {
 
       internal::Residuals residuals(problem, omega, psi);
@@ -394,43 +442,77 @@ class ConicSolver {
         break;
       }
 
-      //BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) << "Initial Values";
-      //BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) << omega << "Iteration" << iteration;
+      // BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) << "Initial
+      // Values";
+      // BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) <<
+      //"Iteration" << iteration;
+      internal::Omega omegaHat =
+          subspaceProjection.doProjection(problem, omega + psi);
 
-      omegaHat = subspaceProjection.doProjection(problem, omega);
-      // TODO Does not work as additions adds x variable, as we are not relaxing x we should not do that
-      //omegaHat = relaxationParameter * omegaHat + (1 - relaxationParameter) * omega;
+      // BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) <<
+      // omegaHat;
 
       omegaHat = relaxOmegaHat(omegaHat, omega);
 
-      //BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) << omegaHat;
+      // cout << "After Subspace Projection" << endl;
+      // cout << omegaHat << endl;
+
+      // BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) <<
+      // omegaHat;
 
       omega = conicProjection.doProjection(omegaHat - psi);
-      psi = psi - (omegaHat + omega);
+
+      psi = updateDualVariables(omegaHat, omega, psi);
 
       ++iteration;
     }
-    //BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) << "Final";
-    BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) << omega;
-    BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) << "Iteration: " << iteration;
-    BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) << "Final Value of X" << std::endl << omega.x/omega.tau;
+    // BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) << "Final";
+
+    BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace)
+        << "Iteration: " << iteration;
+    BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace)
+        << "Final Value of X" << std::endl << omega.x / omega.tau;
   }
 
  private:
   const unsigned int maximumIterations;
   const double tolerance;
   const double relaxationParameter;
-
+  const double xScalingParameter;
   const Problem& problem;
 
-  internal::Omega relaxOmegaHat(const internal::Omega& omegaHat, const internal::Omega& omega){
+
+  /*!
+   * TODO X is not relaxed...Why?
+   * TODO Move outside of this class and create a as function in internal
+   * namespace, but as friend to Omega or something like that
+   */
+  internal::Omega relaxOmegaHat(const internal::Omega& omegaHat,
+                                const internal::Omega& omega) {
     internal::Omega relaxedOmegaHat;
 
     relaxedOmegaHat.x = omegaHat.x;
-    relaxedOmegaHat.y = relaxationParameter * omegaHat.y + (1 - relaxationParameter) * omega.y;
-    relaxedOmegaHat.tau = relaxationParameter * omegaHat.tau + (1 - relaxationParameter) * omega.tau;
+    relaxedOmegaHat.y =
+        relaxationParameter * omegaHat.y + (1 - relaxationParameter) * omega.y;
+    relaxedOmegaHat.tau = relaxationParameter * omegaHat.tau +
+                          (1 - relaxationParameter) * omega.tau;
 
     return relaxedOmegaHat;
+  }
+
+  /*!
+   * x is not relaxed/Used
+   */
+  internal::Psi updateDualVariables(const internal::Omega& omegaHat,
+                                    const internal::Omega& omega,
+                                    const internal::Psi& psi) {
+    internal::Psi updatedPsi;
+
+    updatedPsi.r = psi.r;
+    updatedPsi.s = psi.s + (omega.y - omegaHat.y);
+    updatedPsi.kappa = psi.kappa + (omega.tau - omegaHat.tau);
+
+    return updatedPsi;
   }
 };
 }
