@@ -10,11 +10,17 @@ namespace scs {
 namespace internal {
 
 // Class definition to use as friends
-// TODO Too many friends is it good? Is whole point diluted?
+// TODO Too many friends is it good? Is whole point diluted? Why not make public
+// if all objects are friends :-)
 class Psi;
 class Residuals;
 class SubspaceProjection;
 class ConicProjection;
+
+// Test case
+namespace tests {
+class ProblemGeneration;
+}
 
 /*!
  * TODO Can we have this members variables as private?
@@ -35,8 +41,18 @@ class Omega {
     return initialPoint;
   }
 
- private:
+  static Omega getFinalValue(const Omega& omega){
+    Omega finalOmega;
+
+    finalOmega.x = omega.x / omega.tau;
+    finalOmega.y = omega.y / omega.tau;
+
+    return finalOmega;
+  }
+  // TODO For testing only
   Eigen::VectorXd x;
+ private:
+  //Eigen::VectorXd x;
   Eigen::VectorXd y;
   double tau;
 
@@ -48,9 +64,12 @@ class Omega {
   friend Psi updateDualVariables(const Omega&, const Omega&, const Psi&);
   friend Omega relaxOmegaHat(const Omega&, const Omega&, const double);
 
+  friend Psi;
   friend Residuals;
   friend SubspaceProjection;
   friend ConicProjection;
+  // Test case
+  friend tests::ProblemGeneration;
 };
 
 Omega operator+(const Omega& lhsOmega, const Omega& rhsOmega) {
@@ -79,16 +98,6 @@ std::ostream& operator<<(std::ostream& stream, const Omega& omega) {
  */
 class Psi {
  public:
-  /*
-    Psi& operator=(const Psi& otherPsi) {
-
-      r = otherPsi.r;
-      s = otherPsi.s;
-      kappa = otherPsi.kappa;
-
-      return *this;
-    }*/
-
   /*!
    * TODO Move to constructor
    */
@@ -100,6 +109,14 @@ class Psi {
     initialPoint.kappa = std::sqrt(problem.c.rows() + problem.b.rows() + 1);
 
     return initialPoint;
+  }
+
+  static Psi getFinalValue(const Psi& psi, const Omega& omega){
+    Psi finalPsi;
+
+    finalPsi.s = psi.s / omega.tau;
+
+    return finalPsi;
   }
 
  private:
@@ -117,6 +134,8 @@ class Psi {
   friend Residuals;
   friend SubspaceProjection;
   friend ConicProjection;
+  // Test case
+  friend tests::ProblemGeneration;
 };
 
 std::ostream& operator<<(std::ostream& stream, const Psi& psi) {
@@ -206,7 +225,6 @@ Psi updateDualVariables(const Omega& omegaHat, const Omega& omega,
 
   return updatedPsi;
 }
-
 }  // internal
 }  // scs
 

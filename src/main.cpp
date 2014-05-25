@@ -52,17 +52,21 @@ scs::Problem getTestData2() {
 
 int main(int argc, char **argv) {
 
-  // scs::Problem problem = scs::internal::tests::getLPProblem(5, 5);
+  scs::internal::tests::ProblemGeneration problemGeneration(400, 4, 4);
 
-  //   cout << problem.A << endl;
-  //   cout << problem.c << endl;
-  //   cout << problem.b << endl;
+  scs::Problem problem = problemGeneration.getLinearProgram();
 
-  scs::Problem problem = getTestData();
+//   cout << problem.A << endl;
+//   cout << problem.c << endl;
+//   cout << problem.b << endl;
 
-  scs::ConicSolver solver(problem, 50, 1.5);
+  // problem.c = problem.c * -1;
+  // scs::Problem problem = getTestData2();
+
+  scs::ConicSolver solver(problem, 2550, 1.5);
 
   solver.solve();
+
 
   return 0;
 }

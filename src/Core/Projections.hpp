@@ -101,7 +101,7 @@ class SubspaceProjection {
    * TODO Is there a better way to do rather than working with column compressed
    * format
    */
-  Eigen::SparseMatrix<double> createMHat(const Problem& problem) {
+  Eigen::SparseMatrix<double> createMHat(const Problem& problem) const {
 
     int Arows = problem.A.rows();
     int Acols = problem.A.cols();
@@ -144,10 +144,12 @@ class ConicProjection {
   /*!
    * TODO As of now its only LP cone
    */
-  Omega doProjection(const Omega& omegaHat) {
+  Omega doProjection(const Omega& omegaHat) const {
 
-    Omega omegaHat2 = omegaHat;
-    omegaHat2.y = omegaHat2.y.unaryExpr([](const double & element)->double {
+    Omega omega;
+
+    omega.x = omegaHat.x;
+    omega.y = omegaHat.y.unaryExpr([](const double & element)->double {
       if (element <= 0) {
         return 0;
       } else {
@@ -155,11 +157,13 @@ class ConicProjection {
       }
     });
 
-    if (omegaHat2.tau < 0) {
-      omegaHat2.tau = 0;
+    if (omegaHat.tau < 0) {
+      omega.tau = 0;
+    } else {
+      omega.tau = omegaHat.tau;
     }
 
-    return omegaHat2;
+    return omega;
   }
 };
 

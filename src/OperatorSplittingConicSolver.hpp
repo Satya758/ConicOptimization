@@ -17,9 +17,6 @@
 
 using namespace std;
 
-#include <cmath>
-#include <utility>
-
 #include <Eigen/Sparse>
 #include <Eigen/Dense>
 
@@ -62,8 +59,6 @@ class ConicSolver {
 
     internal::Logger logger;
 
-    int iteration = 0;
-
     internal::Omega omega = internal::Omega::getInitialPoint(problem);
     internal::Psi psi = internal::Psi::getInitialPoint(problem);
 
@@ -73,44 +68,39 @@ class ConicSolver {
     internal::SubspaceProjection subspaceProjection(problem, xScalingParameter);
     internal::ConicProjection conicProjection;
 
-    BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) << omega;
-    while (iteration < maximumIterations) {
+    SolverState solverState;
+    // TODO Move it to for loop and information to info object which is return parameter of solver method
+    int iteration;
+    for (iteration = 0; iteration < maximumIterations; ++iteration) {
 
       internal::Residuals residuals(problem, omega, psi);
-      if (residuals <= tolerantResiduals) {
+
+      solverState = internal::getSolverState(residuals, tolerantResiduals);
+
+      if (solverState == SolverState::CONVERGED ||
+          solverState == SolverState::UNBOUNDED ||
+          solverState == SolverState::INFEASIBLE) {
         break;
       }
 
-      // BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) << "Initial
-      // Values";
-      // BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) <<
-      //"Iteration" << iteration;
       internal::Omega omegaHat =
           subspaceProjection.doProjection(problem, omega + psi);
 
-      // BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) <<
-      // omegaHat;
-
-      omegaHat = relaxOmegaHat(omegaHat, omega, relaxationParameter);
-
-      // cout << "After Subspace Projection" << endl;
-      // cout << omegaHat << endl;
-
-      // BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) <<
-      // omegaHat;
+      omegaHat = internal::relaxOmegaHat(omegaHat, omega, relaxationParameter);
 
       omega = conicProjection.doProjection(omegaHat - psi);
 
-      psi = updateDualVariables(omegaHat, omega, psi);
-
-      ++iteration;
+      psi = internal::updateDualVariables(omegaHat, omega, psi);
     }
-    // BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace) << "Final";
 
-    BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace)
-        << "Iteration: " << iteration;
-    BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace)
-        << "Final Value of X" << std::endl << omega;
+    cout << "SolverState: " << internal::getSolverState(solverState) << endl;
+        BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace)
+            << "Iteration: " << iteration;
+    /*BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace)
+        << "Final Value of X" << std::endl << internal::Omega::getFinalValue(omega)*/;
+	BOOST_LOG_SEV(logger.lg, internal::logging::trivial::trace)
+            << "Solver Objective value: " << problem.c.transpose() * internal::Omega::getFinalValue(omega).x;
+
   }
 
  private:

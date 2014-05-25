@@ -3,6 +3,13 @@
 
 namespace scs {
 
+enum class SolverState {
+  CONVERGED,
+  INFEASIBLE,
+  UNBOUNDED,
+  IN_PROGRESS
+};
+
 /*!
  * TODO Currently only LP is supported, in future versions free variables, SOCP
  * constraints, SDP constraints, Exp constraints will be supported,
